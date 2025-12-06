@@ -1,0 +1,92 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Quant Dashboard</title>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script src="https://cdn.plot.ly/plotly-2.29.1.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 12px; }
+    #controls { margin-bottom: 10px; }
+    .chart { width: 100%; height: 300px; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <h3>Quant Dashboard (Flask + Socket.IO + Plotly)</h3>
+  <div id="controls">
+    Symbol:
+    <select id="symbol"></select>
+    Timeframe:
+    <select id="timeframe">
+      <option value="1s">1s</option>
+      <option value="1m">1m</option>
+      <option value="5m">5m</option>
+    </select>
+    <button id="load">Load</button>
+  </div>
+
+  <div id="price" class="chart"></div>
+  <div id="spread" class="chart"></div>
+  <div id="zscore" class="chart"></div>
+  <div id="alerts"></div>
+
+  <script>
+    const socket = io();
+    let priceData = {};
+    async function init() {
+      const resp = await fetch("/api/symbols");
+      const syms = await resp.json();
+      const sel = document.getElementById("symbol");
+      syms.forEach(s=> {
+        const o = document.createElement("option"); o.value = s; o.text = s; sel.appendChild(o);
+      });
+      document.getElementById("load").onclick = loadData;
+    }
+
+    socket.on("tick", (d) => {
+      // update last price quickly
+      const s = d.symbol;
+      const t = new Date(d.ts);
+      if(!priceData[s]) priceData[s] = {x:[], y:[]};
+      priceData[s].x.push(t); priceData[s].y.push(d.price);
+      // keep last 200 points
+      if(priceData[s].x.length>200) { priceData[s].x.shift(); priceData[s].y.shift(); }
+      const sel = document.getElementById("symbol").value;
+      if(sel===s) {
+        Plotly.update('price', { x:[priceData[s].x], y:[priceData[s].y] });
+      }
+    });
+
+    socket.on("alert", d => {
+      const el = document.getElementById("alerts");
+      const row = document.createElement("div");
+      row.innerText = `[ALERT] ${d.name} ${d.symbol} val=${d.value}`;
+      el.prepend(row);
+    });
+
+    async function loadData(){
+      const symbol = document.getElementById("symbol").value;
+      const timeframe = document.getElementById("timeframe").value;
+      const r = await fetch("/api/resample", {method:"POST", headers: {'Content-Type':'application/json'}, body: JSON.stringify({symbol, timeframe})});
+      if(!r.ok) { alert("No data yet."); return; }
+      const data = await r.json();
+      const x = data.map(d=> new Date(d.ts));
+      const y = data.map(d=> d.close);
+      priceData[symbol] = {x, y};
+      Plotly.newPlot('price', [{ x, y, mode:'lines', name:symbol }], {title:"Price"});
+      // For demo: if a second symbol is available compute hedge with first pair
+      const other = (await fetch("/api/symbols").then(r=>r.json())).find(s=>s!==symbol);
+      if(other){
+        const res = await fetch("/api/analytics/hedge", {method:"POST", headers:{'Content-Type':'application/json'}, body: JSON.stringify({y: symbol, x: other, timeframe})});
+        const j = await res.json();
+        if(j.error) { console.log(j); return; }
+        // plot spread
+        Plotly.newPlot('spread', [{ x: Array.from({length:j.spread.length}, (_,i)=>i), y: j.spread, mode:'lines' }], {title:"Spread"});
+        Plotly.newPlot('zscore', [{ x: Array.from({length:j.zscore.length}, (_,i)=>i), y: j.zscore, mode:'lines' }], {title:"Z-score"});
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>

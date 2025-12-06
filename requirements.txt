@@ -1,0 +1,8 @@
+streamlit>=1.20.0
+pandas>=1.5
+plotly>=5.0
+sqlalchemy>=1.4
+psycopg2-binary>=2.9
+websocket-client>=1.6.1
+statsmodels>=0.14
+streamlit-autorefresh>=0.0.5
