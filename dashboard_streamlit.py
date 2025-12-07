@@ -5,6 +5,8 @@ import plotly.graph_objects as go
 import io
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
+from chart_utils import update_candlestick, update_line
+
 
 # project modules
 from analytics import (
@@ -51,17 +53,18 @@ st.set_page_config(page_title="Quant Dashboard", layout="wide", initial_sidebar_
 # Auto-refresh to simulate near-real-time updates
 st_autorefresh(interval=STREAMLIT_REFRESH_MS, limit=None, key="autorefresh")
 
-st.title("📈 Quant Dashboard (Streamlit + Python)")
+st.title("📈 Quant Dashboard")
 
 # -------------------------
 # Sidebar controls
 # -------------------------
 st.sidebar.header("Controls")
-st.sidebar.subheader("OHLC File Upload (optional)")
+st.sidebar.subheader("OHLC File Upload")
 
 uploaded_file = st.sidebar.file_uploader("Upload OHLC CSV", type=["csv"])
 use_uploaded_data = uploaded_file is not None
 uploaded_df = None
+
 
 # fetch uploaded symbols saved in DB
 try:
@@ -80,6 +83,28 @@ symbol_x = st.sidebar.selectbox("X Symbol (Hedge Asset)", all_symbols, index=0)
 
 timeframe = st.sidebar.selectbox("Timeframe", ["1s", "1m", "5m"], index=0)
 window = st.sidebar.slider("Rolling Window (for z-score/correlation)", min_value=20, max_value=500, value=60, step=10)
+
+
+st.sidebar.markdown("### 📊 Chart Settings")
+
+chart_type = st.sidebar.selectbox(
+    "Chart Type",
+    ["Candlestick", "OHLC", "Line", "Area"],
+    index=0
+)
+
+show_volume = st.sidebar.checkbox("Show Volume", value=True)
+
+st.sidebar.markdown("### 📈 Overlays")
+sma_lengths = st.sidebar.multiselect("SMA", [10, 20, 50, 100])
+ema_lengths = st.sidebar.multiselect("EMA", [10, 20, 50, 100])
+show_bbands = st.sidebar.checkbox("Bollinger Bands (20,2)", value=False)
+show_vwap = st.sidebar.checkbox("VWAP", value=False)
+
+st.sidebar.markdown("### 🛠 Chart Tools")
+crosshair_mode = st.sidebar.selectbox("Crosshair Mode", ["Default", "Crosshair", "Zoom", "Pan"])
+show_grid = st.sidebar.checkbox("Show Grid", value=True)
+autoscale_y = st.sidebar.checkbox("Auto Scale Y-Axis", value=True)
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("Alerts")
@@ -215,47 +240,26 @@ if ohlc_y.empty:
 # -------------------------
 # Price chart (candlestick for Y)
 # -------------------------
-st.header("Price Chart")
-st.subheader(f"{symbol_y} Price (Candlestick)")
+from chart_interactive import make_interactive_chart
 
-fig_price = go.Figure()
-fig_price.add_trace(
-    go.Candlestick(
-        x=ohlc_y.index,
-        open=ohlc_y["open"],
-        high=ohlc_y["high"],
-        low=ohlc_y["low"],
-        close=ohlc_y["close"],
-        name="Price",
-        increasing_line_color="#26a69a",
-        decreasing_line_color="#ef5350",
-    )
+st.header("Interactive Price Chart")
+
+fig_price = make_interactive_chart(
+    ohlc=ohlc_y,
+    chart_type=chart_type,
+    show_volume=show_volume,
+    sma_lengths=sma_lengths,
+    ema_lengths=ema_lengths,
+    show_bbands=show_bbands,
+    show_vwap=show_vwap,
+    crosshair_mode=crosshair_mode,
+    show_grid=show_grid,
+    autoscale_y=autoscale_y
 )
-
-# add volume as secondary axis if exists
-if "volume" in ohlc_y.columns:
-    fig_price.add_trace(
-        go.Bar(
-            x=ohlc_y.index,
-            y=ohlc_y["volume"],
-            name="Volume",
-            marker_color="rgba(128,128,128,0.3)",
-            yaxis="y2",
-        )
-    )
-
-fig_price.update_layout(
-    height=520,
-    xaxis=dict(rangeslider=dict(visible=False), type="date"),
-    yaxis=dict(domain=[0.30, 1.0], title="Price"),
-    yaxis2=dict(domain=[0.0, 0.25], title="Volume"),
-    margin=dict(l=40, r=20, t=40, b=40),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-)
-fig_price.update_xaxes(rangemode="normal", autorange=True)
-fig_price.update_yaxes(autorange=True)
 
 st.plotly_chart(fig_price, use_container_width=True)
+
+
 
 # -------------------------
 # If same symbol chosen -> single-asset mode
@@ -299,19 +303,18 @@ zscore = sz["zscore"]
 
 # Spread chart
 st.subheader("Spread (Y - β * X)")
-fig_spread = go.Figure()
-fig_spread.add_trace(go.Scatter(x=spread.index, y=spread.values, mode="lines", name="Spread"))
-fig_spread.update_layout(height=300, margin=dict(t=30, b=20))
-st.plotly_chart(fig_spread, use_container_width=True)
+fig_spread = update_line("spread_chart_state", spread, st.session_state)
+st.plotly_chart(fig_spread, use_container_width=True, key="spread_chart")
+
+
 
 # Z-score chart with ±2 lines
 st.subheader("Z-Score")
 fig_z = go.Figure()
-fig_z.add_trace(go.Scatter(x=zscore.index, y=zscore.values, mode="lines", name="Z-Score"))
-fig_z.add_hline(y=2, line=dict(color="red", dash="dash"))
-fig_z.add_hline(y=-2, line=dict(color="green", dash="dash"))
-fig_z.update_layout(height=300, margin=dict(t=30, b=20))
-st.plotly_chart(fig_z, use_container_width=True)
+fig_z = update_line("zscore_chart_state", zscore, st.session_state)
+st.plotly_chart(fig_z, use_container_width=True, key="zscore_chart")
+
+
 
 # ADF test
 st.subheader("ADF Test for Mean Reversion (Spread)")
@@ -324,10 +327,10 @@ except Exception as e:
 # Rolling correlation
 st.subheader("Rolling Correlation")
 corr = rolling_correlation(joint["y_close"], joint["x_close"], window=window)
-fig_corr = go.Figure()
-fig_corr.add_trace(go.Scatter(x=corr.index, y=corr.values, mode="lines", name="Rolling Corr"))
-fig_corr.update_layout(height=300, margin=dict(t=30, b=20))
-st.plotly_chart(fig_corr, use_container_width=True)
+fig_corr = update_line("corr_chart_state", corr, st.session_state)
+st.plotly_chart(fig_corr, use_container_width=True, key="corr_chart")
+
+
 
 # -------------------------
 # Alerts evaluation
