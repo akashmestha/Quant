@@ -35,6 +35,8 @@ def update_candlestick(identifier, ohlc, session_state):
             margin=dict(l=20, r=20, t=25, b=20)
         )
 
+        fig.update_layout(dragmode="pan")
+
         state["fig"] = fig
         state["last_ts"] = ohlc.index[-1]
         return fig
@@ -77,6 +79,7 @@ def update_line(identifier, series, session_state):
             height=300,
             margin=dict(l=20, r=20, t=25, b=20)
         )
+        fig.update_layout(dragmode="pan")
 
         state["fig"] = fig
         state["last_ts"] = series.index[-1]

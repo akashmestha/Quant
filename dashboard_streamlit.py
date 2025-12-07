@@ -11,7 +11,7 @@ import streamlit.components.v1 as components
 
 if "auto_refresh" not in st.session_state:
     st.session_state.auto_refresh = True
-    
+
 # Initialize zoom state
 if "chart_zoom" not in st.session_state:
     st.session_state.chart_zoom = None
@@ -372,6 +372,7 @@ zscore = sz["zscore"]
 # Spread chart
 st.subheader("Spread (Y - β * X)")
 fig_spread = update_line("spread_chart_state", spread, st.session_state)
+fig_spread.update_layout(dragmode="pan")
 st.plotly_chart(fig_spread, use_container_width=True, key="spread_chart")
 
 
@@ -380,6 +381,7 @@ st.plotly_chart(fig_spread, use_container_width=True, key="spread_chart")
 st.subheader("Z-Score")
 fig_z = go.Figure()
 fig_z = update_line("zscore_chart_state", zscore, st.session_state)
+fig_z.update_layout(dragmode="pan")
 st.plotly_chart(fig_z, use_container_width=True, key="zscore_chart")
 
 
@@ -396,6 +398,7 @@ except Exception as e:
 st.subheader("Rolling Correlation")
 corr = rolling_correlation(joint["y_close"], joint["x_close"], window=window)
 fig_corr = update_line("corr_chart_state", corr, st.session_state)
+fig_corr.update_layout(dragmode="pan")
 st.plotly_chart(fig_corr, use_container_width=True, key="corr_chart")
 
 

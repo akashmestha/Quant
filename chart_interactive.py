@@ -137,4 +137,7 @@ def make_interactive_chart(ohlc, chart_type, show_volume, sma_lengths, ema_lengt
         ),
     )
 
+    # Default pointer mode = PAN
+    fig.update_layout(dragmode="pan")
+
     return fig
