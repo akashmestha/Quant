@@ -1,5 +1,4 @@
 # dashboard_streamlit.py
-import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import io
@@ -7,6 +6,10 @@ from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 from chart_utils import update_candlestick, update_line
 
+import streamlit as st
+
+if "auto_refresh" not in st.session_state:
+    st.session_state.auto_refresh = True
 
 # project modules
 from analytics import (
@@ -50,8 +53,17 @@ def safe_resample(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
 # Page config & auto-refresh
 # -------------------------
 st.set_page_config(page_title="Quant Dashboard", layout="wide", initial_sidebar_state="expanded")
-# Auto-refresh to simulate near-real-time updates
-st_autorefresh(interval=STREAMLIT_REFRESH_MS, limit=None, key="autorefresh")
+
+from streamlit_autorefresh import st_autorefresh
+
+# Run auto-refresh ONLY when enabled
+if st.session_state.auto_refresh:
+    st_autorefresh(
+        interval=STREAMLIT_REFRESH_MS,
+        limit=None,
+        key="periodic_refresh"
+    )
+
 
 st.title("📈 Quant Dashboard")
 
@@ -59,6 +71,18 @@ st.title("📈 Quant Dashboard")
 # Sidebar controls
 # -------------------------
 st.sidebar.header("Controls")
+
+st.sidebar.markdown("---")
+st.sidebar.subheader("Page Auto-Refresh")
+
+auto_refresh_toggle = st.sidebar.checkbox(
+    "Enable Auto-Refresh",
+    value=st.session_state.auto_refresh
+)
+
+# update session state from user toggle
+st.session_state.auto_refresh = auto_refresh_toggle
+
 st.sidebar.subheader("OHLC File Upload")
 
 uploaded_file = st.sidebar.file_uploader("Upload OHLC CSV", type=["csv"])
