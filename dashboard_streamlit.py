@@ -1,15 +1,21 @@
 # dashboard_streamlit.py
+import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
 import io
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
 from chart_utils import update_candlestick, update_line
+import streamlit.components.v1 as components
 
-import streamlit as st
 
 if "auto_refresh" not in st.session_state:
     st.session_state.auto_refresh = True
+    
+# Initialize zoom state
+if "chart_zoom" not in st.session_state:
+    st.session_state.chart_zoom = None
+
 
 # project modules
 from analytics import (
@@ -53,6 +59,32 @@ def safe_resample(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
 # Page config & auto-refresh
 # -------------------------
 st.set_page_config(page_title="Quant Dashboard", layout="wide", initial_sidebar_state="expanded")
+
+# JavaScript to capture Plotly zoom/pan events
+ZOOM_JS = """
+<script>
+document.addEventListener("plotly_afterplot", function() {
+    let charts = document.querySelectorAll('.js-plotly-plot');
+    charts.forEach(chart => {
+        chart.on('plotly_relayout', function(eventdata) {
+            // if event contains zoom information
+            if (eventdata['xaxis.range[0]']) {
+                const zoomData = {
+                    x0: eventdata['xaxis.range[0]'],
+                    x1: eventdata['xaxis.range[1]'],
+                    y0: eventdata['yaxis.range[0]'],
+                    y1: eventdata['yaxis.range[1]'],
+                };
+                window.parent.postMessage({plotlyZoom: zoomData}, "*");
+            }
+        });
+    });
+});
+</script>
+"""
+
+components.html(ZOOM_JS, height=0)
+
 
 from streamlit_autorefresh import st_autorefresh
 
@@ -261,6 +293,13 @@ if ohlc_y.empty:
     st.warning("Not enough Y data after resampling. Try a different timeframe.")
     st.stop()
 
+from streamlit_js_eval import streamlit_js_eval
+
+zoom_update = streamlit_js_eval(js_code="window.lastPlotlyZoom;", key="zoom_capture")
+
+if zoom_update:
+    st.session_state.chart_zoom = zoom_update
+
 # -------------------------
 # Price chart (candlestick for Y)
 # -------------------------
@@ -280,6 +319,11 @@ fig_price = make_interactive_chart(
     show_grid=show_grid,
     autoscale_y=autoscale_y
 )
+
+if st.session_state.chart_zoom:
+    z = st.session_state.chart_zoom
+    fig_price.update_xaxes(range=[z["x0"], z["x1"]])
+    fig_price.update_yaxes(range=[z["y0"], z["y1"]])
 
 st.plotly_chart(fig_price, use_container_width=True)
 
