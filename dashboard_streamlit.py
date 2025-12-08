@@ -5,19 +5,13 @@ import plotly.graph_objects as go
 import io
 from datetime import datetime
 from streamlit_autorefresh import st_autorefresh
+from backtest_pair import run_pairs_backtest
+
+
+# project helper modules (keep these as in your project)
 from chart_utils import update_candlestick, update_line
-import streamlit.components.v1 as components
+from chart_interactive import make_interactive_chart
 
-
-if "auto_refresh" not in st.session_state:
-    st.session_state.auto_refresh = True
-
-# Initialize zoom state
-if "chart_zoom" not in st.session_state:
-    st.session_state.chart_zoom = None
-
-
-# project modules
 from analytics import (
     load_ticks,
     resample_ohlc,
@@ -34,99 +28,134 @@ from database_utils import (
 from config import SYMBOLS, STREAMLIT_REFRESH_MS
 
 # -------------------------
+# Session state defaults
+# -------------------------
+if "auto_refresh" not in st.session_state:
+    st.session_state.auto_refresh = True
+
+# Keep a small flag for UI (not persistence)
+if "ui_theme" not in st.session_state:
+    st.session_state.ui_theme = "dark"
+
+# -------------------------
 # Helpers
 # -------------------------
-def df_to_csv_bytes(df: pd.DataFrame) -> bytes:
-    buf = io.StringIO()
-    df.to_csv(buf, index=True)
-    return buf.getvalue().encode()
-
 def df_to_csv_string(df: pd.DataFrame) -> str:
     buf = io.StringIO()
     df.to_csv(buf, index=True)
     return buf.getvalue()
 
 def safe_resample(df: pd.DataFrame, timeframe: str) -> pd.DataFrame:
-    """Wrapper to ensure resample_ohlc works and returns a DataFrame."""
     try:
-        o = resample_ohlc(df, timeframe)
-        return o
+        return resample_ohlc(df, timeframe)
     except Exception as e:
         st.warning("Resample error: " + str(e))
         return pd.DataFrame()
 
 # -------------------------
-# Page config & auto-refresh
+# Page config & visual theme
 # -------------------------
 st.set_page_config(page_title="Quant Dashboard", layout="wide", initial_sidebar_state="expanded")
 
-# JavaScript to capture Plotly zoom/pan events
-ZOOM_JS = """
-<script>
-document.addEventListener("plotly_afterplot", function() {
-    let charts = document.querySelectorAll('.js-plotly-plot');
-    charts.forEach(chart => {
-        chart.on('plotly_relayout', function(eventdata) {
-            // if event contains zoom information
-            if (eventdata['xaxis.range[0]']) {
-                const zoomData = {
-                    x0: eventdata['xaxis.range[0]'],
-                    x1: eventdata['xaxis.range[1]'],
-                    y0: eventdata['yaxis.range[0]'],
-                    y1: eventdata['yaxis.range[1]'],
-                };
-                window.parent.postMessage({plotlyZoom: zoomData}, "*");
-            }
-        });
-    });
-});
-</script>
-"""
+# -------------------------
+# Custom CSS - TradingView Dark Theme
+# -------------------------
+st.markdown(
+    """
+    <style>
+    /* Backgrounds & text */
+    html, body, [class*="css"]  {
+        background-color: #0d1117 !important;
+        color: #e6edf3 !important;
+    }
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        background-color: #0f1620 !important;
+        border-right: 1px solid #22303a;
+    }
+    /* Titles */
+    h1, h2, h3, h4 {
+        color: #e6edf3 !important;
+        font-weight: 600;
+    }
+    /* Metric boxes */
+    div[data-testid="metric-container"] {
+        background-color: #0f1620;
+        border: 1px solid #22303a;
+        border-radius: 8px;
+        padding: 10px;
+    }
+    /* Buttons */
+    button {
+        border-radius: 6px !important;
+    }
+    .stDownloadButton>button {
+        background-color: #26323a !important;
+        color: #e6edf3 !important;
+    }
+    /* Small tweaks */
+    .section-box {
+        background:#0f1620;
+        padding:12px;
+        border-radius:8px;
+        border:1px solid #22303a;
+        margin-bottom:16px;
+    }
+    /* Remove background behind charts */
+    .js-plotly-plot .plotly, .plot-container {
+        background-color: transparent !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-components.html(ZOOM_JS, height=0)
-
-
-from streamlit_autorefresh import st_autorefresh
-
-# Run auto-refresh ONLY when enabled
+# -------------------------
+# Auto-refresh logic (sidebar toggle controls this)
+# -------------------------
 if st.session_state.auto_refresh:
-    st_autorefresh(
-        interval=STREAMLIT_REFRESH_MS,
-        limit=None,
-        key="periodic_refresh"
-    )
+    st_autorefresh(interval=STREAMLIT_REFRESH_MS, limit=None, key="periodic_refresh")
 
-
+# -------------------------
+# Page title + top nav (visual only)
+# -------------------------
 st.title("📈 Quant Dashboard")
+st.markdown(
+    """
+    <div style="
+        background-color:#0f1620;
+        padding:10px;
+        border-radius:8px;
+        margin-bottom:18px;
+        border:1px solid #22303a;
+    ">
+        <span style="font-size:16px; margin-right:22px; color:#c9d1d9;">📉 Charts</span>
+        <span style="font-size:16px; margin-right:22px; color:#8b949e;">📊 Analytics</span>
+        <span style="font-size:16px; margin-right:22px; color:#8b949e;">🧪 Backtesting</span>
+        <span style="font-size:16px; margin-right:22px; color:#8b949e;">⚙️ Settings</span>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 # -------------------------
 # Sidebar controls
 # -------------------------
 st.sidebar.header("Controls")
-
 st.sidebar.markdown("---")
 st.sidebar.subheader("Page Auto-Refresh")
-
-auto_refresh_toggle = st.sidebar.checkbox(
-    "Enable Auto-Refresh",
-    value=st.session_state.auto_refresh
-)
-
-# update session state from user toggle
+auto_refresh_toggle = st.sidebar.checkbox("Enable Auto-Refresh", value=st.session_state.auto_refresh)
 st.session_state.auto_refresh = auto_refresh_toggle
 
 st.sidebar.subheader("OHLC File Upload")
-
 uploaded_file = st.sidebar.file_uploader("Upload OHLC CSV", type=["csv"])
 use_uploaded_data = uploaded_file is not None
 uploaded_df = None
 
-
-# fetch uploaded symbols saved in DB
+# fetch uploaded symbols saved in DB (safe)
 try:
     uploaded_symbols = get_uploaded_symbols()
 except Exception as e:
-    # if DB has issues, fallback to empty list
     uploaded_symbols = []
     st.sidebar.error("Could not fetch uploaded symbols: " + str(e))
 
@@ -140,15 +169,8 @@ symbol_x = st.sidebar.selectbox("X Symbol (Hedge Asset)", all_symbols, index=0)
 timeframe = st.sidebar.selectbox("Timeframe", ["1s", "1m", "5m"], index=0)
 window = st.sidebar.slider("Rolling Window (for z-score/correlation)", min_value=20, max_value=500, value=60, step=10)
 
-
 st.sidebar.markdown("### 📊 Chart Settings")
-
-chart_type = st.sidebar.selectbox(
-    "Chart Type",
-    ["Candlestick", "OHLC", "Line", "Area"],
-    index=0
-)
-
+chart_type = st.sidebar.selectbox("Chart Type", ["Candlestick", "OHLC", "Line", "Area"], index=0)
 show_volume = st.sidebar.checkbox("Show Volume", value=True)
 
 st.sidebar.markdown("### 📈 Overlays")
@@ -189,9 +211,7 @@ if use_uploaded_data:
             st.sidebar.markdown("Label uploaded data to save to DB:")
             uploaded_label = st.sidebar.text_input("Symbol label (DB)", value=f"UPLOAD_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}")
             if st.sidebar.button("Save uploaded OHLC to Postgres"):
-                # Save copies with index as ts column
                 save_df = uploaded_df.reset_index().rename(columns={"ts": "ts"})
-                # ensure ts column present and datetime
                 save_df["ts"] = pd.to_datetime(save_df["ts"])
                 try:
                     n = save_uploaded_ohlc(save_df, uploaded_label)
@@ -204,25 +224,15 @@ if use_uploaded_data:
         uploaded_df = None
 
 # -------------------------
-# Load source data (uploaded prioritized)
+# Data source loader
 # -------------------------
 def load_source_for_symbol(symbol: str, uploaded_df_local: pd.DataFrame):
-    """
-    Priority:
-      1) If user is using uploaded_df in the current run -> return that
-      2) If symbol exists in saved uploads DB -> load_uploaded_ohlc
-      3) Else -> live ticks (load_ticks)
-    """
-    # 1) use temporary upload for both X and Y if present
     if uploaded_df_local is not None:
-        # Return a frame with columns ts, open/high/low/close/volume (index is ts)
         return uploaded_df_local.reset_index().rename(columns={"ts": "ts"})
-    # 2) check saved uploaded symbols
     if symbol in uploaded_symbols:
         try:
             df = load_uploaded_ohlc(symbol)
             if df is not None and not df.empty:
-                # ensure dt index/column
                 if "ts" in df.columns:
                     df["ts"] = pd.to_datetime(df["ts"])
                     return df.reset_index().rename(columns={"ts": "ts"})
@@ -232,28 +242,22 @@ def load_source_for_symbol(symbol: str, uploaded_df_local: pd.DataFrame):
                     return df
         except Exception as e:
             st.warning(f"Error loading uploaded OHLC for {symbol}: {e}")
-    # 3) live ticks
     try:
         df_ticks = load_ticks(symbol)
     except Exception as e:
         st.error(f"Error loading ticks for {symbol}: {e}")
         return pd.DataFrame()
-
     if df_ticks is None or df_ticks.empty:
         return pd.DataFrame()
-
-    # df_ticks returned has columns ts (datetime), price, qty
-    # Ensure ts column exists
     if "ts" not in df_ticks.columns:
         df_ticks = df_ticks.reset_index().rename(columns={"index": "ts"})
-    # return
     return df_ticks
 
 # load for Y and X
 dfy_raw = load_source_for_symbol(symbol_y, uploaded_df)
 dfx_raw = load_source_for_symbol(symbol_x, uploaded_df)
 
-# quick debug / status
+# debug expander
 with st.expander("Data preview & counts (debug)", expanded=False):
     st.write("DFY HEAD:")
     if dfy_raw is None or dfy_raw.empty:
@@ -269,7 +273,6 @@ with st.expander("Data preview & counts (debug)", expanded=False):
         st.dataframe(dfx_raw.head())
         st.markdown(f"**DFX COUNT:** {len(dfx_raw)}")
 
-# If no data at all, stop
 if dfy_raw is None or dfy_raw.empty:
     st.warning(f"No data available for {symbol_y}. Wait for ingestion or upload OHLC.")
     st.stop()
@@ -293,19 +296,35 @@ if ohlc_y.empty:
     st.warning("Not enough Y data after resampling. Try a different timeframe.")
     st.stop()
 
-from streamlit_js_eval import streamlit_js_eval
-
-zoom_update = streamlit_js_eval(js_code="window.lastPlotlyZoom;", key="zoom_capture")
-
-if zoom_update:
-    st.session_state.chart_zoom = zoom_update
-
 # -------------------------
 # Price chart (candlestick for Y)
 # -------------------------
-from chart_interactive import make_interactive_chart
-
-st.header("Interactive Price Chart")
+st.header("Price Chart")
+# chart header (symbol, timeframe, last price)
+last_price = ohlc_y["close"].iloc[-1] if "close" in ohlc_y.columns and not ohlc_y["close"].empty else float("nan")
+st.markdown(
+    f"""
+    <div style='
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+        padding:8px 10px;
+        background:#0f1620;
+        border:1px solid #22303a;
+        border-radius:8px;
+        margin-bottom:8px;
+    '>
+        <div>
+            <span style="font-size:18px; font-weight:600;">{symbol_y} Chart</span>
+            <span style="color:#8b949e; margin-left:12px;">Timeframe: {timeframe}</span>
+        </div>
+        <div style="color:#26ff8a; font-weight:600;">
+            Last Price: {last_price:.2f}
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 fig_price = make_interactive_chart(
     ohlc=ohlc_y,
@@ -320,14 +339,9 @@ fig_price = make_interactive_chart(
     autoscale_y=autoscale_y
 )
 
-if st.session_state.chart_zoom:
-    z = st.session_state.chart_zoom
-    fig_price.update_xaxes(range=[z["x0"], z["x1"]])
-    fig_price.update_yaxes(range=[z["y0"], z["y1"]])
-
-st.plotly_chart(fig_price, use_container_width=True)
-
-
+# enforce PAN as default interaction mode
+fig_price.update_layout(dragmode="pan")
+st.plotly_chart(fig_price, use_container_width=True, key="price_chart")
 
 # -------------------------
 # If same symbol chosen -> single-asset mode
@@ -341,17 +355,14 @@ if symbol_y == symbol_x:
 # -------------------------
 st.header("Hedge Ratio & Statistical Analysis (Pair)")
 
-# align close series
 y_close = ohlc_y["close"].rename("y_close")
 x_close = ohlc_x["close"].rename("x_close")
 
-# ensure enough overlap
 joint = pd.concat([y_close, x_close], axis=1).dropna()
 if joint.shape[0] < 10:
     st.error("Not enough overlapping data points between the two symbols after resampling.")
     st.stop()
 
-# Hedge ratio
 hr = hedge_ratio_ols(joint["y_close"], joint["x_close"])
 if hr is None:
     st.error("Could not compute hedge ratio (insufficient data).")
@@ -375,16 +386,11 @@ fig_spread = update_line("spread_chart_state", spread, st.session_state)
 fig_spread.update_layout(dragmode="pan")
 st.plotly_chart(fig_spread, use_container_width=True, key="spread_chart")
 
-
-
-# Z-score chart with ±2 lines
+# Z-score chart
 st.subheader("Z-Score")
-fig_z = go.Figure()
 fig_z = update_line("zscore_chart_state", zscore, st.session_state)
 fig_z.update_layout(dragmode="pan")
 st.plotly_chart(fig_z, use_container_width=True, key="zscore_chart")
-
-
 
 # ADF test
 st.subheader("ADF Test for Mean Reversion (Spread)")
@@ -401,6 +407,49 @@ fig_corr = update_line("corr_chart_state", corr, st.session_state)
 fig_corr.update_layout(dragmode="pan")
 st.plotly_chart(fig_corr, use_container_width=True, key="corr_chart")
 
+
+# -------------------------
+# 🔙 Backtesting — Pairs Trading Strategy
+# -------------------------
+
+st.header("🔙 Backtesting — Pairs Trading Strategy")
+
+entry_z_input = st.number_input("Entry Z-Score Threshold", value=2.0)
+exit_z_input = st.number_input("Exit Z-Score Threshold", value=0.0)
+position_size_input = st.number_input("Position Size ($)", value=1000)
+stop_loss_input = st.number_input("Stop Loss (%)", value=10.0)
+
+if st.button("Run Backtest"):
+    summary, equity_curve, trades_df = run_pairs_backtest(
+        ohlc_y,
+        ohlc_x,
+        beta=beta,
+        entry_z=entry_z_input,
+        exit_z=exit_z_input,
+        position_size=position_size_input,
+        window=window,
+        stop_loss_pct=stop_loss_input
+    )
+
+    if summary is None:
+        st.error("Not enough data to run backtest.")
+    else:
+        st.success("Backtest Completed!")
+
+        # ---- Summary Cards ----
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Total PnL", f"{summary['Total PnL']:.2f}")
+        c2.metric("Max Drawdown", f"{summary['Max Drawdown']:.2f}")
+        c3.metric("Sharpe Ratio", f"{summary['Sharpe Ratio']:.3f}")
+        c4.metric("Trades", summary["Number of Trades"])
+
+        # ---- Equity Curve ----
+        st.subheader("📈 Equity Curve")
+        st.line_chart(equity_curve)
+
+        # ---- Trades Table ----
+        st.subheader("📄 Trades Executed")
+        st.dataframe(trades_df)
 
 
 # -------------------------
@@ -433,10 +482,9 @@ if enable_alerts:
         st.info("No alerts triggered.")
 
 # -------------------------
-# Export data
+# Export / Download
 # -------------------------
 st.header("📤 Export / Download")
-
 colA, colB, colC = st.columns(3)
 with colA:
     st.write("### OHLC (Y)")
@@ -456,4 +504,4 @@ with colC:
     z_df = pd.DataFrame({"ts": zscore.index, "zscore": zscore.values})
     st.download_button("Download Z-Score CSV", data=df_to_csv_string(z_df), file_name=f"{symbol_y}_{symbol_x}_zscore.csv", mime="text/csv")
 
-st.success("Dashboard rendered successfully (auto-refresh enabled).")
+st.success("Dashboard rendered successfully.")
