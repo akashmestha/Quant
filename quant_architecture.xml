@@ -1,0 +1,81 @@
+<mxfile host="app.diagrams.net" modified="2025-01-01T12:00:00.000Z" agent="5.0" version="20.1.3">
+  <diagram id="GemscapDiagram" name="Architecture">
+    <mxGraphModel dx="1436" dy="806" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0"/>
+        <mxCell id="1"/>
+
+        <!-- WebSocket Source -->
+        <mxCell id="ws" value="Binance WebSocket Feed&#10;tick: {ts, symbol, price, qty}" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=14;" vertex="1">
+          <mxGeometry x="120" y="80" width="240" height="80" as="geometry"/>
+        </mxCell>
+
+        <!-- Ingestion Engine -->
+        <mxCell id="ingest" value="Ingestion Pipeline&#10;- WebSocket Listener&#10;- Validation & Normalization&#10;- Writes Tick Data" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=14;" vertex="1">
+          <mxGeometry x="120" y="200" width="240" height="120" as="geometry"/>
+        </mxCell>
+
+        <!-- Arrow WS -> Ingest -->
+        <mxCell id="arrow1" edge="1" source="ws" target="ingest" style="endArrow=classic;strokeColor=#000000;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Database Storage -->
+        <mxCell id="db" value="Database (PostgreSQL)&#10;- Tick Storage&#10;- OHLC Storage&#10;- Uploaded OHLC" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=14;" vertex="1">
+          <mxGeometry x="120" y="360" width="240" height="120" as="geometry"/>
+        </mxCell>
+
+        <!-- Arrow Ingest -> DB -->
+        <mxCell id="arrow2" edge="1" source="ingest" target="db" style="endArrow=classic;strokeColor=#000000;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Resampling Engine -->
+        <mxCell id="resample" value="Resampling Engine&#10;- 1s / 1m / 5m OHLC&#10;- Aggregates Volume" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=14;" vertex="1">
+          <mxGeometry x="460" y="360" width="240" height="120" as="geometry"/>
+        </mxCell>
+
+        <!-- Arrow DB -> Resample -->
+        <mxCell id="arrow3" edge="1" source="db" target="resample" style="endArrow=classic;strokeColor=#000000;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Analytics Engine -->
+        <mxCell id="analytics" value="Analytics Engine&#10;- OLS β, R²&#10;- Kalman β(t)&#10;- Spread & Z-score&#10;- ADF Test&#10;- Rolling Correlation&#10;- ML Feature Table" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=14;" vertex="1">
+          <mxGeometry x="820" y="340" width="300" height="160" as="geometry"/>
+        </mxCell>
+
+        <!-- Arrow Resample -> Analytics -->
+        <mxCell id="arrow4" edge="1" source="resample" target="analytics" style="endArrow=classic;strokeColor=#000000;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Backtest Engine -->
+        <mxCell id="backtest" value="Backtesting Engine&#10;- Mean Reversion (Z>2 entry)&#10;- Equity Curve&#10;- PnL/Drawdown&#10;- Trades Table" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;fontSize=14;" vertex="1">
+          <mxGeometry x="820" y="540" width="300" height="140" as="geometry"/>
+        </mxCell>
+
+        <!-- Arrow Analytics -> Backtest -->
+        <mxCell id="arrow5" edge="1" source="analytics" target="backtest" style="endArrow=classic;strokeColor=#000000;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Frontend -->
+        <mxCell id="frontend" value="Streamlit Dashboard&#10;- Price Charts&#10;- Spread / Z-score&#10;- Correlation&#10;- Controls (symbols, timeframe, β type)&#10;- Data Export&#10;- Real-Time Alerts" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#cfe2f3;strokeColor=#6fa8dc;fontSize=14;" vertex="1">
+          <mxGeometry x="460" y="560" width="320" height="180" as="geometry"/>
+        </mxCell>
+
+        <!-- Arrow Analytics -> Frontend -->
+        <mxCell id="arrow6" edge="1" source="analytics" target="frontend" style="endArrow=classic;strokeColor=#000000;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+        <!-- Arrow Backtest -> Frontend -->
+        <mxCell id="arrow7" edge="1" source="backtest" target="frontend" style="endArrow=classic;strokeColor=#000000;">
+          <mxGeometry relative="1" as="geometry"/>
+        </mxCell>
+
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
